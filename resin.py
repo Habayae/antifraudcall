@@ -4,48 +4,34 @@ import datetime
 import json
 import psutil
 import re
-
-# Các custom file
 LOG_FILE = "/var/log/asterisk/resin.log"
 STATE_FILE = "/var/lib/asterisk/agi-bin/resin.state"
-
-# Thông tin để truy cập database
 DB_HOST = "localhost"
 DB_USER = "freepbxuser"
 DB_PASS = "201315@Nh"
 DB_NAME = "asteriskcdrdb"
-
 MARK_LIMIT = 5
 MAX_BAN_ATTEMPT = 3
 RELEASE_TIME_MAP = {
-    1: 300,   # sau 5 phút
-    2: 600,   # sau 10 phút
-    3: 900    # sau 15 phút
+    1: 300,   
+    2: 600,   
+    3: 900   
 }
-
-# Ghi log theo thời gian thựcthực
 def write_log(msg):
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     with open(LOG_FILE, "a") as f:
         f.write(f"[{now}] {msg}\n")
-
-# Lấy thời gian khởi động hệ thống
 def system_boot_time():
     return datetime.datetime.fromtimestamp(psutil.boot_time()).strftime("%Y-%m-%d %H:%M:%S")
-
-# Load và lưu file log
 def load_json_file(path, default):
     if os.path.exists(path):
         with open(path, 'r') as f:
             return json.load(f)
     return default
-
 def save_json_file(path, data):
     with open(path, 'w') as f:
         json.dump(data, f)
-
-# Truy xuất các cuộc gọi có dấu hiệu vi phạm từ CDR database
 def get_short_calls(start_time, end_time):
     conn = pymysql.connect(
         host=DB_HOST, user=DB_USER, password=DB_PASS,
@@ -63,24 +49,16 @@ def get_short_calls(start_time, end_time):
     results = cur.fetchall()
     conn.close()
     return results
-
-# Kiểm tra CallerID xem đã có trong blacklist 
 def is_blacklisted(src):
     result = os.popen(f'asterisk -rx "database get blacklist {src}"').read()
     return "Value:" in result
-
-# Thêm Caller ID vào blacklist 
 def add_to_blacklist(src):
     uid = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
     os.system(f'asterisk -rx "database put blacklist {src} {uid}"')
     write_log(f"{src} | STATUS: BAN | UID: {uid}")
-
-# Xóa khỏi blacklist theo mốc thời gian
 def remove_from_blacklist(src):
     os.system(f'asterisk -rx "database del blacklist {src}"')
     write_log(f"{src} | STATUS: RELEASE")
-
-# Hàm thực thi
 def main():
     now = datetime.datetime.now()
 
@@ -94,13 +72,9 @@ def main():
             "last_checked": None,
             "callers": {}
         }
-
-    # Xác định thời gian quét
     start_time = datetime.datetime.strptime(state["start_time"], "%Y-%m-%d %H:%M:%S")
     last_checked = datetime.datetime.strptime(state["last_checked"], "%Y-%m-%d %H:%M:%S") if state.get("last_checked") else start_time
     end_time = now
-
-    # Lấy thông tin từ các cuộc gọi ngắn và tiến hành các thủ tục 
     calls = get_short_calls(last_checked, end_time)
     counter = {}
 
@@ -138,8 +112,6 @@ def main():
             write_log(f"{src} | STATUS: MARK | COUNT: {record['mark']}")
 
         callers[src] = record
-
-    # Xóa khỏi blacklist với số lượng giới hạn
     for src, record in callers.items():
         if record.get("ban_time") and not record.get("permanent"):
             ban_time = datetime.datetime.strptime(record["ban_time"], "%Y-%m-%d %H:%M:%S")
@@ -153,10 +125,8 @@ def main():
                 else:
                     write_log(f"{src} | Release skipped: not in blacklist")
                 callers[src] = record
-
     state["callers"] = callers
     state["last_checked"] = now.strftime("%Y-%m-%d %H:%M:%S")
     save_json_file(STATE_FILE, state)
-
 if __name__ == "__main__":
     main()
